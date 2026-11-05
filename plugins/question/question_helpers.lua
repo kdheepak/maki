@@ -60,10 +60,8 @@ local function option_desc(options, label)
   end
 end
 
--- Only the picked answers get a row: every row here is permanent scrollback,
--- and the options passed over are spent information. A nil {answers} means the
--- form was dismissed. Returns the lines, plus a row -> option key map covering
--- the rows that toggle a description.
+-- A nil {answers} means the form was dismissed. Returns the lines, plus a
+-- row -> option key map covering the rows that toggle a description.
 local function card_lines(questions, answers, width, expanded)
   local lines, keys = {}, {}
   local function emit(line)
@@ -85,11 +83,27 @@ local function card_lines(questions, answers, width, expanded)
     if #ans == 0 then
       emit({ { INDENT .. NO_ANSWER, "dim" } })
     end
+    local labels, selected, seen = {}, {}, {}
     for _, text in ipairs(ans) do
+      selected[text] = true
+    end
+    for _, opt in ipairs(q.options) do
+      labels[#labels + 1] = opt.label
+      seen[opt.label] = true
+    end
+    for _, text in ipairs(ans) do
+      if not seen[text] then
+        labels[#labels + 1] = text
+        seen[text] = true
+      end
+    end
+    for _, text in ipairs(labels) do
+      local style = selected[text] and "success" or "dim"
+      local prefix = selected[text] and ANSWER_PREFIX or "    ○ "
       local desc = option_desc(q.options, text)
       local key = i .. "\0" .. text
       for j, piece in ipairs(maki.split(text, "\r?\n")) do
-        local line = { { j == 1 and ANSWER_PREFIX or ANSWER_INDENT, "success" }, { piece, "success" } }
+        local line = { { j == 1 and prefix or ANSWER_INDENT, style }, { piece, style } }
         if desc and j == 1 then
           line[#line + 1] = { expanded[key] and COLLAPSE_HINT or EXPAND_HINT, "dim" }
           keys[emit(line)] = key

@@ -721,13 +721,12 @@ local function two_option_question()
   return { { question = "Pick one", options = { { label = "Yes" }, { label = "No" } } } }
 end
 
--- Every row is permanent scrollback, so only what the user picked earns one.
-case("render_card_shows_only_the_picked_answers", function()
+case("render_card_keeps_options_after_answering", function()
   for _, c in ipairs({
-    { name = "picked option", answers = { { "Yes" } }, shown = "Yes", hidden = "No", style = PICKED_STYLE },
+    { name = "picked option", answers = { { "Yes" } }, shown = "Yes", style = PICKED_STYLE },
     { name = "custom answer", answers = { { "typed by hand" } }, shown = "typed by hand", style = PICKED_STYLE },
-    { name = "skipped question", answers = { {} }, shown = "(no answer)", hidden = "Yes" },
-    { name = "dismissed form", answers = nil, shown = "Dismissed by user", hidden = "Yes" },
+    { name = "skipped question", answers = { {} }, shown = "(no answer)" },
+    { name = "dismissed form", answers = nil, shown = "Dismissed by user" },
   }) do
     with_mock_ui(function(buf)
       QuestionHelpers.render_card(two_option_question(), c.answers, card_opts())
@@ -737,33 +736,55 @@ case("render_card_shows_only_the_picked_answers", function()
       if c.style then
         eq(span[2], c.style, c.name .. ": picked answers must stand out")
       end
-      if c.hidden then
-        assert(not find_span_containing(lines, c.hidden), c.name .. ": " .. c.hidden .. " must not take a row")
+      local yes = find_row(lines, "Yes")
+      local no = find_row(lines, "No")
+      assert(yes and no and yes < no, c.name .. ": original options must remain in order")
+      eq(lines[no][1][1], "    ○ ", "unselected option must have a hollow circle")
+      eq(find_span_containing(lines, "No")[2], "dim", "unselected option must not look picked")
+      if c.answers == nil then
+        assert(find_span_containing(lines, "(no answer)"), "dismissed question keeps its no-answer row")
       end
     end)
   end
 end)
 
-case("render_card_click_toggles_the_option_description", function()
+case("render_card_orders_multiple_picks_and_deduplicates_custom_answers", function()
   with_mock_ui(function(buf)
-    local questions = {
-      { question = "Pick one", options = { { label = "Yes", description = EXPAND_DESC } } },
-    }
-    QuestionHelpers.render_card(questions, { { "Yes" } }, card_opts())
-    assert(not find_span_containing(buf.get_lines(), EXPAND_DESC), "description must be hidden by default")
-    local row = find_row(buf.get_lines(), "Yes")
-    assert(row, "answer row must exist")
-    buf:emit("click", { row = row })
-    assert(find_span_containing(buf.get_lines(), EXPAND_DESC), "click must expand the description")
-    buf:emit("click", { row = row })
-    assert(not find_span_containing(buf.get_lines(), EXPAND_DESC), "second click must collapse it back")
+    QuestionHelpers.render_card(two_option_question(), { { "No", "custom", "Yes", "custom", "No" } }, card_opts())
+    local lines = buf.get_lines()
+    eq(#lines, 4, "each option and distinct custom answer gets one row")
+    eq(lines[2][2][1], "Yes", "first option stays first")
+    eq(lines[3][2][1], "No", "second option stays second")
+    eq(lines[4][2][1], "custom", "custom answers follow predefined options")
+    for row = 2, 4 do
+      eq(lines[row][1][1], "    ✓ ", "every selected answer keeps its checkmark")
+      eq(lines[row][2][2], PICKED_STYLE, "every selected answer keeps its success style")
+    end
   end)
+end)
+
+case("render_card_click_toggles_the_option_description", function()
+  for _, answers in ipairs({ { { "Yes" } }, { { "custom" } } }) do
+    with_mock_ui(function(buf)
+      local questions = {
+        { question = "Pick one", options = { { label = "Yes", description = EXPAND_DESC } } },
+      }
+      QuestionHelpers.render_card(questions, answers, card_opts())
+      assert(not find_span_containing(buf.get_lines(), EXPAND_DESC), "description must be hidden by default")
+      local row = find_row(buf.get_lines(), "Yes")
+      assert(row, "answer row must exist")
+      buf:emit("click", { row = row })
+      assert(find_span_containing(buf.get_lines(), EXPAND_DESC), "click must expand the description")
+      buf:emit("click", { row = row })
+      assert(not find_span_containing(buf.get_lines(), EXPAND_DESC), "second click must collapse it back")
+    end)
+  end
 end)
 
 case("render_card_splits_a_multiline_answer_into_one_row_each", function()
   with_mock_ui(function(buf)
     local questions = {
-      { question = "Question one", options = { { label = "Alpha" } } },
+      { question = "Question one", options = { { label = "Alpha" }, { label = MULTILINE_CUSTOM } } },
       { question = "Question two", options = { { label = "Gamma", description = EXPAND_DESC } } },
     }
     QuestionHelpers.render_card(questions, { { "Alpha", MULTILINE_CUSTOM }, { "Gamma" } }, card_opts())
@@ -800,7 +821,10 @@ end)
 case("render_card_keeps_a_lone_hidden_row_clickable", function()
   with_mock_ui(function(buf)
     local questions = {
-      { question = "Pick one", options = { { label = "Gamma", description = EXPAND_DESC } } },
+      {
+        question = "Pick one",
+        options = { { label = "Alpha" }, { label = "Beta" }, { label = "Gamma", description = EXPAND_DESC } },
+      },
     }
     QuestionHelpers.render_card(questions, { { "Alpha", "Beta", "Gamma" } }, card_opts(ONE_OVER_LINES))
     eq(#buf.get_lines(), ONE_OVER_LINES + 1, "the single hidden row takes the notice's place")
